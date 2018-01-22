@@ -125,7 +125,11 @@ func protoScalarType(name string, items *Items, indx int) string {
 	case string:
 		switch typ.(string) {
 		case "string":
-			result = fmt.Sprintf("string %s = %d", name, indx)
+			if frmat == "byte" {
+				result = fmt.Sprintf("bytes %s = %d", name, indx)
+			} else {
+				result = fmt.Sprintf("string %s = %d", name, indx)
+			}
 		case "bytes":
 			result = fmt.Sprintf("bytes %s = %d", name, indx)
 		case "number":

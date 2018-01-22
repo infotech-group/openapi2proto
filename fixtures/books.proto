@@ -5,7 +5,6 @@ package booksapi;
 import "google/protobuf/struct.proto";
 
 message GETListsFormatRequest {
-
     // YYYY-MM-DD
     // 
     // The week-ending date for the sales reflected on list-name. Times best-seller lists are compiled using available book sale data. The bestsellers-date may be significantly earlier than published-date. For additional information, see the explanation at the bottom of any best-seller list page on NYTimes.com (example: Hardcover Fiction, published Dec. 5 but reflecting sales to Nov. 29).
