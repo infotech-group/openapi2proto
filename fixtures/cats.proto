@@ -3,12 +3,13 @@ syntax = "proto3";
 package cats;
 
 import "google/protobuf/empty.proto";
+import "github.com/mwitkow/go-proto-validators/validator.proto";
 
 import "google/protobuf/timestamp.proto";
 
 message GetCatIdProtoJSONRequest {
     // The transport to respond with (Protobuf or JSON)
-    string ProtoJSON = 1;
+    string ProtoJSON = 1 [(validator.field) = { regex: "(proto|json)" }];
     // The Cat ID to get
     int64 id = 2;
 }
@@ -17,14 +18,14 @@ message GetCatsProtojsonRequest {
     // Limiting the number of cats
     int64 limit = 1;
     // The transport to respond with (Protobuf or JSON)
-    string protojson = 2;
+    string protojson = 2 [(validator.field) = { regex: "(proto|json)" }];
 }
 
 message PutCatsProtojsonRequest {
     // A batch of cats to save to the db.
     repeated Cat cats = 1;
     // The transport to respond with (Protobuf or JSON)
-    string protojson = 2;
+    string protojson = 2 [(validator.field) = { regex: "(proto|json)" }];
 }
 
 message Cat {
