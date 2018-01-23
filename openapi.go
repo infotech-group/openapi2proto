@@ -52,13 +52,14 @@ type Response struct {
 
 // Endpoint represents an endpoint for a path in an OpenAPI spec.
 type Endpoint struct {
-	Summary     string               `yaml:"summary" json:"summary"`
-	Description string               `yaml:"description" json:"description"`
-	Parameters  Parameters           `yaml:"parameters" json:"parameters"`
-	Tags        []string             `yaml:"tags" json:"tags"`
-	Responses   map[string]*Response `yaml:"responses" json:"responses"`
-	Security    []interface{}        `yaml:"security" json:"security"`
-	OperationID string               `yaml:"operationId" json:"operationId"`
+	Summary            string               `yaml:"summary" json:"summary"`
+	Description        string               `yaml:"description" json:"description"`
+	Parameters         Parameters           `yaml:"parameters" json:"parameters"`
+	Tags               []string             `yaml:"tags" json:"tags"`
+	Responses          map[string]*Response `yaml:"responses" json:"responses"`
+	Security           []interface{}        `yaml:"security" json:"security"`
+	OperationID        string               `yaml:"operationId" json:"operationId"`
+	GrpcMethodDisabled bool                 `yaml:"x-grpc-disabled" json:"x-grpc-disabled"`
 }
 
 // Model represents a model definition from an OpenAPI spec.
@@ -561,6 +562,10 @@ func prepComment(comment, space string) string {
 }
 
 func (e *Endpoint) protoEndpoint(annotate bool, parentParams Parameters, base, path, method string) string {
+	if e.GrpcMethodDisabled {
+		return ""
+	}
+
 	reqName := "google.protobuf.Empty"
 
 	endpointName := PathMethodToName(path, method, e.OperationID)
