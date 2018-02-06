@@ -60,6 +60,7 @@ type Endpoint struct {
 	Security           []interface{}        `yaml:"security" json:"security"`
 	OperationID        string               `yaml:"operationId" json:"operationId"`
 	GrpcMethodDisabled bool                 `yaml:"x-grpc-disabled" json:"x-grpc-disabled"`
+	Required           interface{}          `yaml:"required,omitempty" json:"required,omitempty"`
 }
 
 // Model represents a model definition from an OpenAPI spec.
@@ -231,7 +232,23 @@ func refType(ref string, defs map[string]*Items) (string, string) {
 	return itemType, pkg
 }
 
-func refDef(name, ref string, index int, defs map[string]*Items) string {
+func prepareRequired(required interface{}) map[string]bool {
+	result := make(map[string]bool)
+	if required != nil {
+		values, ok := required.([]interface{})
+		if ok {
+			for _, val := range values {
+				switch val.(type) {
+				case string:
+					result[val.(string)] = true
+				}
+			}
+		}
+	}
+	return result
+}
+
+func refDef(name, ref string, index int, defs map[string]*Items, required interface{}) string {
 	itemType, _ := refType(ref, defs)
 	// check if this is an array, parameter types can be setup differently and
 	// this may not have been caught earlier
@@ -239,18 +256,25 @@ func refDef(name, ref string, index int, defs map[string]*Items) string {
 	if ok {
 		// if it is an array type, protocomplex indstead of just using the referenced type
 		if def.Type == "array" {
-			return protoComplex(def, def.Type.(string), "", name, defs, &index, 0)
+			return protoComplex(def, def.Type.(string), "", name, defs, &index, 0, required)
 		}
 		if def.Type == "number" || def.Type == "integer" {
 			return protoScalarType(name, def, index)
 		}
 	}
-	return fmt.Sprintf("%s %s = %d", itemType, name, index)
+
+	res := fmt.Sprintf("%s %s = %d", itemType, name, index)
+	req := prepareRequired(required)
+	if _, ok := req[name]; ok {
+		res += msgExistsValidatorRule
+	}
+
+	return res
 }
 
 // ProtoMessage will generate a set of fields for a protobuf v3 schema given the
 // current Items and information.
-func (i *Items) ProtoMessage(msgName, name string, defs map[string]*Items, indx *int, depth int) string {
+func (i *Items) ProtoMessage(msgName, name string, defs map[string]*Items, indx *int, depth int, required interface{}) string {
 	*indx++
 	if i.ProtoTag != 0 {
 		*indx = i.ProtoTag
@@ -259,13 +283,12 @@ func (i *Items) ProtoMessage(msgName, name string, defs map[string]*Items, indx 
 	name = strings.Replace(name, "-", "_", -1)
 
 	if i.Ref != "" {
-		return refDef(name, i.Ref, index, defs)
+		return refDef(name, i.Ref, index, defs, required)
 	}
-
 	// for parameters
 	if i.Schema != nil {
 		if i.Schema.Ref != "" {
-			return refDef(name, i.Schema.Ref, index, defs)
+			return refDef(name, i.Schema.Ref, index, defs, required)
 		}
 		if i.In == "body" && i.Schema.Type == nil {
 			i.Schema.Type = "object"
@@ -274,13 +297,13 @@ func (i *Items) ProtoMessage(msgName, name string, defs map[string]*Items, indx 
 				msgName, name, i.Schema.Type)
 			os.Exit(1)
 		}
-		return protoComplex(i.Schema, i.Schema.Type.(string), msgName, name, defs, indx, depth)
+		return protoComplex(i.Schema, i.Schema.Type.(string), msgName, name, defs, indx, depth, required)
 	}
-
 	switch i.Type.(type) {
 	case string:
-		return protoComplex(i, i.Type.(string), msgName, name, defs, indx, depth)
+		return protoComplex(i, i.Type.(string), msgName, name, defs, indx, depth, required)
 	case []interface{}:
+
 		types := i.Type.([]interface{})
 		hasNull := false
 		var otherTypes []string
@@ -344,7 +367,7 @@ func (i *Items) ProtoMessage(msgName, name string, defs map[string]*Items, indx 
 	return ""
 }
 
-func protoComplex(i *Items, typ, msgName, name string, defs map[string]*Items, index *int, depth int) string {
+func protoComplex(i *Items, typ, msgName, name string, defs map[string]*Items, index *int, depth int, required interface{}) string {
 	switch typ {
 	case "object":
 		// check for map declaration
@@ -362,17 +385,22 @@ func protoComplex(i *Items, typ, msgName, name string, defs map[string]*Items, i
 		// check for referenced schema object (parameters/fields)
 		if i.Schema != nil {
 			if i.Schema.Ref != "" {
-				return refDef(indent(depth+1)+name, i.Schema.Ref, *index, defs)
+				return refDef(indent(depth+1)+name, i.Schema.Ref, *index, defs, required)
 			}
 		}
 
 		// otherwise, normal object model
 		i.Model.Name = strings.Title(name)
-		msgStr := i.Model.ProtoModel(i.Model.Name, depth+1, defs)
+		msgStr := i.Model.ProtoModel(i.Model.Name, depth+1, defs, i.Required)
 		if depth < 0 {
 			return msgStr
 		}
-		return fmt.Sprintf("%s\n%s%s %s = %d", msgStr, indent(depth+1), i.Model.Name, name, *index)
+		protoRes := fmt.Sprintf("%s\n%s%s %s = %d", msgStr, indent(depth+1), i.Model.Name, name, *index)
+		req := prepareRequired(required)
+		if _, ok := req[name]; ok {
+			protoRes += msgExistsValidatorRule
+		}
+		return protoRes
 	case "array":
 		if i.Items != nil {
 			if depth < 0 {
@@ -386,7 +414,7 @@ func protoComplex(i *Items, typ, msgName, name string, defs map[string]*Items, i
 
 			// CHECK FOR REF
 			if i.Items.Ref != "" {
-				return "repeated " + refDef(name, i.Items.Ref, *index, defs)
+				return "repeated " + refDef(name, i.Items.Ref, *index, defs, false)
 			}
 
 			// breaks on 'Class' :\
@@ -395,7 +423,7 @@ func protoComplex(i *Items, typ, msgName, name string, defs map[string]*Items, i
 			} else {
 				i.Items.Model.Name = strings.Title(name)
 			}
-			msgStr := i.Items.Model.ProtoModel(i.Items.Model.Name, depth+1, defs)
+			msgStr := i.Items.Model.ProtoModel(i.Items.Model.Name, depth+1, defs, required)
 			return fmt.Sprintf("%s\n%srepeated %s %s = %d", msgStr, indent(depth+1), i.Items.Model.Name, name, *index)
 		}
 	case "string":
@@ -498,17 +526,17 @@ func OperationIDToName(operationID string) string {
 // based on the response schema. If the response is an array
 // type, it will get wrapped in a generic message with a single
 // 'items' field to contain the array.
-func (r *Response) ProtoMessage(endpointName string, defs map[string]*Items) string {
+func (r *Response) ProtoMessage(endpointName string, defs map[string]*Items, required interface{}) string {
 	name := endpointName + "Response"
 	if r.Schema == nil {
 		return ""
 	}
 	switch r.Schema.Type {
 	case "object":
-		return r.Schema.Model.ProtoModel(name, 0, defs)
+		return r.Schema.Model.ProtoModel(name, 0, defs, required)
 	case "array":
 		model := &Model{Properties: map[string]*Items{"items": r.Schema}}
-		return model.ProtoModel(name, 0, defs)
+		return model.ProtoModel(name, 0, defs, required)
 	default:
 		return ""
 	}
@@ -638,18 +666,18 @@ func (e *Endpoint) protoEndpoint(annotate bool, parentParams Parameters, base, p
 
 func (e *Endpoint) protoMessages(parentParams Parameters, endpointName string, defs map[string]*Items) string {
 	var out bytes.Buffer
-	msg := e.Parameters.ProtoMessage(parentParams, endpointName, defs)
+	msg := e.Parameters.ProtoMessage(parentParams, endpointName, defs, nil)
 	if msg != "" {
 		out.WriteString(msg + "\n\n")
 	}
 
 	if resp, ok := e.Responses["200"]; ok {
-		msg := resp.ProtoMessage(endpointName, defs)
+		msg := resp.ProtoMessage(endpointName, defs, resp.Schema.Required)
 		if msg != "" {
 			out.WriteString(msg + "\n\n")
 		}
 	} else if resp, ok := e.Responses["201"]; ok {
-		msg := resp.ProtoMessage(endpointName, defs)
+		msg := resp.ProtoMessage(endpointName, defs, resp.Schema.Required)
 		if msg != "" {
 			out.WriteString(msg + "\n\n")
 		}
@@ -765,7 +793,7 @@ func findRefName(i *Items, defs map[string]*Items) string {
 
 // ProtoMessage will return a protobuf v3 message that represents
 // the request Parameters.
-func (p Parameters) ProtoMessage(parent Parameters, endpointName string, defs map[string]*Items) string {
+func (p Parameters) ProtoMessage(parent Parameters, endpointName string, defs map[string]*Items, required interface{}) string {
 	m := &Model{Properties: paramsToProps(parent, p, defs)}
 
 	// do nothing, no props and should be a google.protobuf.Empty
@@ -779,8 +807,9 @@ func (p Parameters) ProtoMessage(parent Parameters, endpointName string, defs ma
 
 	s := struct {
 		*Model
-		Defs map[string]*Items
-	}{m, defs}
+		Defs     map[string]*Items
+		Required interface{}
+	}{m, defs, required}
 
 	err := protoMsgTmpl.Execute(&b, s)
 	if err != nil {
@@ -791,14 +820,15 @@ func (p Parameters) ProtoMessage(parent Parameters, endpointName string, defs ma
 
 // ProtoModel will return a protobuf v3 message that represents
 // the current Model.
-func (m *Model) ProtoModel(name string, depth int, defs map[string]*Items) string {
+func (m *Model) ProtoModel(name string, depth int, defs map[string]*Items, required interface{}) string {
 	var b bytes.Buffer
 	m.Name = name
 	m.Depth = depth
 	s := struct {
 		*Model
-		Defs map[string]*Items
-	}{m, defs}
+		Defs     map[string]*Items
+		Required interface{}
+	}{m, defs, required}
 	err := protoMsgTmpl.Execute(&b, s)
 	if err != nil {
 		log.Fatal("unable to protobuf model: ", err)

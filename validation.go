@@ -12,7 +12,10 @@ type ValidationPair struct {
 	Value string
 }
 
-const validationTmplStr = ` [(validator.field) = { {{- range $i, $v := .}}{{- if $i}}, {{- end}} {{ $v.Name }}: {{ $v.Value }} {{- end}} }]`
+const (
+	validationTmplStr      = ` [(validator.field) = { {{- range $i, $v := .}}{{- if $i}}, {{- end}} {{ $v.Name }}: {{ $v.Value }} {{- end}} }]`
+	msgExistsValidatorRule = " [(validator.field) = {msg_exists : true}]"
+)
 
 var (
 	validationTmpl = template.Must(template.New("validationRules").Funcs(funcMap).Parse(validationTmplStr))
@@ -27,15 +30,20 @@ func validationRules(items *Items) string {
 	params := make([]*ValidationPair, 0)
 
 	switch typValue {
-	case "number":
+	case "number", "integer":
 		{
-			params = appendValidationMin("float_gte", "float_gt", items, params)
-			params = appendValidationMax("float_lte", "float_lt", items, params)
-		}
-	case "integer":
-		{
-			params = appendValidationMin("int_gt", "int_gt", items, params)
-			params = appendValidationMax("int_lt", "int_lt", items, params)
+			switch items.Format {
+			case "float", "double":
+				{
+					params = appendValidationMin("float_gte", "float_gt", items, params)
+					params = appendValidationMax("float_lte", "float_lt", items, params)
+				}
+			case "int64":
+				{
+					params = appendValidationMin("int_gt", "int_gt", items, params)
+					params = appendValidationMax("int_lt", "int_lt", items, params)
+				}
+			}
 		}
 	case "string":
 		{
