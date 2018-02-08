@@ -38,7 +38,7 @@ func validationRules(items *Items) string {
 					params = appendValidationMin("float_gte", "float_gt", items, params)
 					params = appendValidationMax("float_lte", "float_lt", items, params)
 				}
-			case "int64":
+			case "int64", "int32":
 				{
 					params = appendValidationMin("int_gt", "int_gt", items, params)
 					params = appendValidationMax("int_lt", "int_lt", items, params)
